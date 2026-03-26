@@ -43,7 +43,7 @@ main :: ()
     register_resources(*resources);
 
     // Init
-    yae_init(800, 600, "jamembert");
+    yae_init(800, 600, "bootstrap");
     init();
 
     // Loop
