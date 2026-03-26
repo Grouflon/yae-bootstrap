@@ -16,6 +16,7 @@ build :: ()
     debug := array_find(args, "debug");
     wasm := array_find(args, "wasm");
     optimize := array_find(args, "optimize");
+    export := array_find(args, "export");
 
     // Set build type
     os_target: Operating_System_Tag = OS;
@@ -23,6 +24,21 @@ build :: ()
 
     // Make bin directory
     make_directory_if_it_does_not_exist(BUILD_OUTPUT_DIRECTORY, recursive = true);
+
+
+    extension: string;
+    if os_target ==
+    {
+        case .WINDOWS; extension = "exe";
+        case .WASM; extension = "wasm";
+    }
+    executable_path: = tprint("%/%.%", BUILD_OUTPUT_DIRECTORY, BUILD_NAME, extension);
+
+    // Kill previous process
+    #if OS == .WINDOWS
+    {
+        kill_process_by_path(executable_path);
+    }
 
     // Compile
     if compile
@@ -38,6 +54,10 @@ build :: ()
         options.emit_debug_info = .DEFAULT;
         options.output_path = BUILD_OUTPUT_DIRECTORY;
         options.output_executable_name = BUILD_NAME;
+
+        import_path : [..]string;
+        array_add(*import_path, tprint("%/modules/yae/modules", #filepath));
+        array_add(*import_path, ..options.import_path);
 
         if options.os_target ==
         {
@@ -58,10 +78,10 @@ build :: ()
                 // We should probably port this allocator to Jai instead…
                 //  -rluba, 2023-11-15
                 walloc_object_file_path := tprint("%/examples/wasm/walloc.o", compiler_get_base_path());
-                print("%\n", walloc_object_file_path);
-                options.output_executable_name = tprint("%0%0064", BUILD_NAME);
+                // print("%\n", walloc_object_file_path);
+                // options.output_executable_name = tprint("%0%0064", BUILD_NAME);
 
-                STACK_SIZE :: 24 * 1024;
+                STACK_SIZE :: 32 * 1024;
                 options.additional_linker_arguments = .[
                     "--stack-first", "-z", tprint("stack-size=%", STACK_SIZE),
                     "--export-table",
@@ -69,12 +89,9 @@ build :: ()
                     walloc_object_file_path,
                 ];
 
-                import_path : [..]string;
-                array_add(*import_path, ..options.import_path);
                 array_add(*import_path, ...[
                     tprint("%/examples/wasm/modules", compiler_get_base_path()),
                 ]);
-                options.import_path = import_path;
 
                 options.llvm_options.target_system_features = "+bulk-memory"; // "This options is needed so that "memcpy" and "memset" are mapped to "memory.copy" and "memory.fill" instructions in WASM.
 
@@ -82,6 +99,8 @@ build :: ()
                 remap_import(w, "*", "Default_Allocator", "Walloc");
             }
         }
+
+        options.import_path = import_path;
 
         set_optimization(*options, ifx optimize then .OPTIMIZED else .DEBUG);
 
@@ -94,6 +113,9 @@ build :: ()
         while true
         {
             message: = compiler_wait_for_message();
+
+            yae_notify_compiler_message(w, message);
+            
             if message.kind == {
                 case .ERROR; error_count += 1;
                 case .COMPLETE;
@@ -122,21 +144,60 @@ build :: ()
         {
             case .WASM;
             {
-                // Convert wasm64 to wasm32
-                wasm64_path: = tprint("./%1/%2%0064.wasm", BUILD_OUTPUT_DIRECTORY, BUILD_NAME);
-                wasm32_path: = tprint("./%1/%2.wasm", BUILD_OUTPUT_DIRECTORY, BUILD_NAME);
-                cmd := string.["./modules/yae/thirdparty/wasm64232.exe", "-o", wasm32_path, wasm64_path];
+                // Patch wasm to add asyncify routines
+                cmd := string.["./modules/yae/third_party/wasm-opt.exe", executable_path, "--asyncify", "-o", executable_path];
                 log("%", cmd);
                 run_command(..cmd, capture_and_return_output= true, print_captured_output= true);
-                file_delete(wasm64_path);
             }
         }
+    }
+
+    // Export
+    if export
+    {
+        log("Exporting...");
+
+        platform_name: string;
+        if os_target ==
+        {
+            case .WINDOWS; platform_name = "windows";
+            case .WASM; platform_name = "web";
+        }
+
+        export_dir: = tprint("./export/%", platform_name);
+        File.delete_directory(export_dir);
+        make_directory_if_it_does_not_exist(export_dir, true);
+
+        // data
+        File_Utilities.copy_directory("./data", tprint("%/data", export_dir));
+        make_directory_if_it_does_not_exist(tprint("%/modules/yae", export_dir), true);
+        File_Utilities.copy_directory("./modules/yae/data", tprint("%/modules/yae/data", export_dir));
+        log("Copied data.");
+
+        // bin
+        make_directory_if_it_does_not_exist(tprint("%/%", export_dir, BUILD_OUTPUT_DIRECTORY));
+        File_Utilities.copy_file(executable_path, tprint("%/%", export_dir, executable_path));
+        log("Copied binaries.");
+
+        if os_target == .WASM
+        {
+            // index
+            File_Utilities.copy_file("./index.html", tprint("%/index.html", export_dir));
+            log("Copied index.");
+        }
+
+        log("Archiving export...");
+        zip_target: = tprint("%_%.zip", BUILD_NAME, platform_name);
+        cmd := string.[tprint("%/modules/yae/third_party/7z.exe", get_absolute_path(".")), "a", "-tzip", zip_target, "*.*", "-r"];
+        log("%", cmd);
+        run_command(..cmd, export_dir, capture_and_return_output= true, print_captured_output= true);
+
+        log("Exported to \"%\"(%/%)", export_dir, export_dir, zip_target);
     }
 
     // Run
     if os_target == .WINDOWS
     {
-        exe_path: = tprint("%/%.exe", BUILD_OUTPUT_DIRECTORY, BUILD_NAME);
         if debug
         {
             cmd: []string = .[
@@ -149,15 +210,16 @@ build :: ()
         }
         else if run
         {
-            result, output_string: = run_command(exe_path, capture_and_return_output= true);
-            print("\n");
-            log(output_string);
+            process: Process;
+            args: []string = .["cmd", "/C", "start", get_absolute_path(executable_path)];
+            result: = create_process(*process, ..args, kill_process_if_parent_exits= false);
         }
     }
 }
 
 #import "Basic";
-#import "File";
-#import "File_Utilities";
+File :: #import "File";
+File_Utilities :: #import "File_Utilities";
 #import "Compiler";
 #import "Process";
+#import "yae";
