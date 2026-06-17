@@ -26,12 +26,12 @@ TestStruct :: struct
 update :: (using ptr: *TestStruct, dt: float) 
 {
     p = .{0.5 + sin(get_time_since_startup().(float) * a) * 0.3, 0.5};
-} @default_update
+} @update_group()
 
 draw :: (using ptr: *TestStruct)
 {
     draw_circle(xyz(p, 0), b, c);
-} @default_draw
+} @draw_group()
 
 ptr: *TestStruct;
 id: ID(TestStruct);
@@ -57,7 +57,7 @@ shutdown :: ()
 
 update :: (dt: float)
 {
-    default_update(dt);
+    update_group(dt);
 
     if is_pressed(.ESCAPE)
     {
@@ -70,7 +70,7 @@ draw :: ()
     clear_background(resources.settings.background_color);
     draw_circle(.{0.2,0.2, 0}, resources.settings.circle_radius, resources.settings.circle_color);
 
-    default_draw();
+    draw_group();
 }
 
 // Boilerplate
