@@ -18,28 +18,38 @@ resources : struct
 TestStruct :: struct
 {
     a: float = 10.0;
-    b: float = 0.2;
     c: Color = WHITE;
     p: Vector2;
 }
 
 update :: (using ptr: *TestStruct, dt: float) 
 {
-    p = .{0.5 + sin(get_time_since_startup().(float) * a) * 0.3, 0.5};
+    p = .{200 + sin(get_time_since_startup().(float) * a) * 50, 200};
 } @update_group()
 
 draw :: (using ptr: *TestStruct)
 {
-    draw_circle(xyz(p, 0), b, c);
+    draw_circle(xyz(p, 0), resources.settings.circle_radius, c);
 } @draw_group()
 
 ptr: *TestStruct;
 id: ID(TestStruct);
 
+// Rendering
+GAME_WIDTH :: 320;
+GAME_HEIGHT :: 200;
+game_render_texture: RenderTexture;
+
 // Application callbacks
 init :: ()
 {
     load_all_resources();
+
+    game_render_texture = load_render_texture(GAME_WIDTH, GAME_HEIGHT);
+    set_texture_parameters(game_render_texture.texture, TextureParameters.{
+        min_filter = .NEAREST,
+        mag_filter = .NEAREST,
+    });
 
     _:, id = pool_add(TestStruct);
     ptr=, _: = pool_add(TestStruct);
@@ -51,6 +61,8 @@ shutdown :: ()
 {
     pool_remove(ptr);
     pool_remove(id);
+
+    unload_render_texture(game_render_texture);
 
     unload_all_resources();
 }
@@ -67,10 +79,39 @@ update :: (dt: float)
 
 draw :: ()
 {
-    clear_background(resources.settings.background_color);
-    draw_circle(.{0.2,0.2, 0}, resources.settings.circle_radius, resources.settings.circle_color);
+    // GAME
+    {
+        begin_render_texture(game_render_texture);
+        defer end_render_texture();
 
-    draw_group();
+        begin_camera(.{
+            type=.ORTHOGRAPHIC,
+            orthographic = .{
+                top = 0.0,
+                left = 0.0,
+                right = GAME_WIDTH,
+                bottom = GAME_HEIGHT,
+                near = -1.0,
+                far = 1.0
+            }
+        });
+        defer end_camera();
+
+        clear_background(resources.settings.background_color);
+
+        draw_circle(.{100,100, 0}, resources.settings.circle_radius, resources.settings.circle_color);
+
+        draw_circle_outline(.{160,100, 0.1}, 50.0, 1.0);
+
+        draw_group();
+    }
+
+    // COMPOSITING
+    {
+        clear_background(.{0,0,0,255});
+
+        draw_sprite(.{}, game_render_texture.texture, draw_rect = .{.{0,0}, .{1,1}}, flip_y = true); // we flip y cause opengl naturally draws textures upside down
+    }
 }
 
 // Boilerplate

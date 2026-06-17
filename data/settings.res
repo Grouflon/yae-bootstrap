@@ -11,5 +11,5 @@
 		135,
 		255
 	],
-	"circle_radius": 0.15
+	"circle_radius": 46.560001
 }
