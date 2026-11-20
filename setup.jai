@@ -1,6 +1,18 @@
 PLACEHOLDER_NAME :: "bootstrap";
 BUILD_FILE :: "build.jai";
 
+rename :: (source_pattern: string, target_name: string)
+{
+    source_file_name: = tprint(source_pattern, PLACEHOLDER_NAME);
+
+    if file_exists(source_file_name)
+    {
+        new_file_name: = replace(source_file_name, PLACEHOLDER_NAME, target_name);
+        log("Renaming % -> %...", source_file_name, new_file_name);
+        file_move(source_file_name, new_file_name);
+    }
+}
+
 #run {
     // This is not an actual compilation script
     set_build_options_dc(.{do_output=false});
@@ -8,14 +20,9 @@ BUILD_FILE :: "build.jai";
     args := get_build_options().compile_time_command_line;
     project_name: = args[0];
 
-    // Rename project file
-    project_file: = tprint("%.sublime-project", PLACEHOLDER_NAME);
-    if file_exists(project_file)
-    {
-        new_project_file_name: = replace(project_file, PLACEHOLDER_NAME, project_name);
-        log("Renaming % -> %...", project_file, new_project_file_name);
-        file_move(project_file, new_project_file_name);
-    }
+    // Rename project files
+    rename("%.sublime-project", project_name);
+    rename("%.raddbg_project", project_name);
 
     // Replace project name in build file
     log("Replacing project name in %...", BUILD_FILE);
